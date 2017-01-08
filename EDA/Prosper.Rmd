@@ -1,0 +1,382 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r include=FALSE, message = FALSE}
+library(dplyr)
+library(ggplot2)
+loan <- read.csv('C:/Users/Abhishek/Documents/Udacity - DAND/EDA/prosperLoanData.csv')
+
+# Extract loan creation year and month
+loan$Loan.Year <- as.integer(format(as.Date(loan$ListingCreationDate), '%Y'))
+loan$Loan.Month <- as.integer(format(as.Date(loan$ListingCreationDate), '%m'))
+# Convert IncomeRange to a factor
+loan$IncomeRange <- factor(loan$IncomeRange, levels(loan$IncomeRange)[c(7:8, 1:2, 4:6, 9:10, 3)])
+# TotalProsperLoans is NA if a user has no existing prosper loan
+loan$TotalProsperLoans <-  ifelse(is.na(loan$TotalProsperLoans), 0, loan$TotalProsperLoans)
+
+# Identify loans using the different credit rating systems
+new_loans <- loan %>% filter(Loan.Year > 2009 | (Loan.Year == 2009 & Loan.Month > 7))
+old_loans <- loan %>% filter(Loan.Year < 2009 | (Loan.Year == 2009 & Loan.Month <= 7))
+
+
+```
+
+
+# Prosper P2P Loan Data EDA
+
+We will be working with the dataset of Prosper P2P loans which has `r nrow(loan)` obeservations corresponding to a loan having `r ncol(loan)` features/variables on the P2P lending platform *Prosper*. The data is available from **November 2005** to **March 2014**. 
+
+
+> Prosper made a change in its Credit Rating system at the end of July 2009. This change has affected the analysis below, where there will be 2 sets of analysis for the 2 different credit rating systems, where appropriate.
+
+## Summay of the dataset
+
+AS stated above, the dimensions of the dataset is `r dim(loan)`. Each loan has `r ncol(loan)` features/variables, which are only explored partially, keeping in mind the length of the analysis.
+
+One of the most common terms in a loan, is the **Loan Term**, or the duration of the loan. Since Propser is a P2P lenging platform, it is meant to be only for short term loans, unlike banks which offer long term loans like mortgage. In the dataset we can see that there are `r unique(loan$Term)` loan terms. One difference we notice here is that Prosper added a new term of 5 years/ 60 months when they changed the credit rating system. The other common loan terms are 1 year/ 12 months and 3 years/ 36months.
+
+```{r}
+# Bar plot for loan term
+ggplot(loan %>% 
+         group_by(Term) %>% 
+         summarize(Count = n()), aes(Term, Count)) + 
+  geom_bar(stat = 'identity', fill = '#FE7800', color = '#E20C77') + 
+  scale_x_continuous(labels = c(12,36,60), breaks = c(12,36,60)) + 
+  ggtitle('Loan term in months')
+```
+
+Another common loan term is the APR or the Annual Percentage Rate. This is a continuous variable and so there are many possible interest rates. There are `r length(unique(loan$BorrowerAPR))` unique APRs.
+
+```{r}
+ggplot(loan %>% 
+         filter(!is.na(BorrowerAPR)), aes(BorrowerAPR)) + 
+  geom_histogram(bins = 25, fill = '#FE7800', color = '#E20C77') +
+  ggtitle('Histogram of Borrower APR')
+```
+
+There are `r levels(loan$LoanStatus)` unique loan statues levels. These levels have also been updated in the new loans. Originally there were only 4 levels, namely Completed,  Chargedoff, Defaulted and Cancelled. In the new loans, they have added many new levels to capture loans which might get delayed in payment. The new loans add options to have loan status in many *Past Due* levels, like Past Daue (1-15 days). Most loans are either Chargedoff, Current or Completed.
+
+```{r}
+table(loan$LoanStatus)
+```
+
+There a multiple other fields related to loan yield/interest rates. There are lender and borrower related rates in the data, which is analyzed in multivariate analysis. The dataset also has information about the state of resedence of the loan taker.
+
+```{r}
+state.count <- loan %>% 
+                  group_by(BorrowerState) %>% 
+                  summarize(Count = n()) %>% 
+                  arrange(-Count) %>% 
+                  top_n(20)
+ggplot(state.count, aes(reorder(BorrowerState, -Count), Count)) +
+  geom_bar(stat = 'identity', fill = '#FE7800', color = '#E20C77') +
+  ggtitle('Top 20 borrower states') +
+  xlab('Borrower State')
+```
+
+Prosper is a California based company and so we can expect a higher number of loans going to people in this state as the operations would have been started in CA first. The next few popular states are Texas, New York, Florida and Illinois. There are 5515 loans with no corresponding borrower state information which are all old loans listed before 2009. From 2009 onwards the dataset has borrower state information for each loan.
+
+```{r}
+occupation.count <- loan %>% 
+                      group_by(Occupation) %>% 
+                      summarize(Count = n()) %>% 
+                      arrange(-Count) %>% 
+                      top_n(10)
+ggplot(occupation.count, aes(reorder(Occupation, -Count), Count)) +
+  geom_bar(stat = 'identity', fill = '#FE7800', color = '#E20C77') +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  ggtitle('Top 10 occupation of borrowers') +
+  xlab('Occupation')
+```
+The most popular occupation is *Other*, which is diffult to explore further, as it is a catch all exception class. The next few popular occupation of the borrowers of Prosper are Professional, Computer Programmer, Executive, etc. 
+
+```{r}
+employment.status.count <- loan %>% 
+                              group_by(EmploymentStatus) %>%
+                              summarise(Count = n())
+ggplot(employment.status.count, 
+       aes(reorder(EmploymentStatus, -Count), Count)) +
+  geom_bar(stat = 'identity', fill = '#FE7800', color = '#E20C77') +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  ggtitle('Employment status') + 
+  xlab('Employment status')
+```
+
+In the above plot, there are 2255 loans with an empty employment status, which is part of the old loans.
+
+```{r}
+ggplot(subset(loan, !is.na(EmploymentStatusDuration) & EmploymentStatusDuration > 0), 
+       aes(EmploymentStatusDuration)) +
+  geom_histogram(bins = 40, fill = '#FE7800', color = '#E20C77') +
+  ggtitle('Employment status duration') + 
+  xlab('Employment status duration') +
+  scale_x_log10(labels = c(1:6, 12, 24, 60, 120, 240, 360, 480), 
+                breaks = c(1:6, 12, 24, 60, 120, 240, 360, 480))
+```
+
+Most borrowers have had an employment of 2 - 20 years, with the mode being at 6 years. There are 1534 loans listed by borrowers with 0 months of experience.
+
+```{r}
+ggplot(subset(loan, !is.na(CurrentCreditLines)), aes(CurrentCreditLines)) + 
+  geom_histogram(bins = 30, fill = '#FE7800', color = '#E20C77') + 
+  scale_x_continuous(labels = c(seq(0,30,2), seq(35,60,5)), 
+                     breaks = c(seq(0,30,2), seq(35,60,5))) +
+  ggtitle('Current credit lines') + 
+  xlab('Current credit lines')
+```
+
+Most borrowers have 4 to 16 credit lines. There a multiple other fields with information about credit lines and public records.
+
+```{r}
+ggplot(subset(loan, OpenRevolvingMonthlyPayment > 0), 
+       aes(OpenRevolvingMonthlyPayment)) + 
+  geom_histogram(bins = 40, fill = '#FE7800', color = '#E20C77') + 
+  scale_x_log10(labels = c(50, 100, 250, 500, 1000), 
+                breaks = c(50, 100, 250, 500, 1000)) +
+  ggtitle('Open revolving montly payment amount') +
+  xlab('Open revolving montly payment amount')
+
+```
+Most users are having existing loans with monthly payments ranging from \$100 - \$1000. There are 5227 loans for which users dont have any montly credit payments.
+
+```{r}
+ggplot(subset(loan, !is.na(ScorexChangeAtTimeOfListing)), 
+       aes(ScorexChangeAtTimeOfListing)) + 
+  geom_histogram(bins = 50, fill = '#FE7800', color = '#E20C77') +
+  ggtitle('Change is credit score at time of listing') +
+  xlab('Change in credit score')
+```
+
+There seems to be a balance between users who had an improvement in their credit score and the users who had a worsened credit rating. But there are a large number of borrowers who had either no change or a marginal improvement in their credit score.
+
+```{r}
+# Home ownership 
+table(loan$IsBorrowerHomeowner)
+```
+
+The loans seem to have a balanced ratio of with and without having their own home.
+```{r}
+# Income verifiable
+table(loan$IncomeVerifiable)
+```
+
+Most users have a verifiable income, only 7-8% of the loans do not have borrowers with verifiable income.
+
+```{r}
+# Experiment
+ggplot(loan, aes(ListingCategory..numeric.)) + 
+  geom_bar(stat = 'count', fill = '#FE7800', color = '#E20C77')
+```
+It is importnant to note that prior to 2009 Prosper had just the first 8 loan categories. This is the reason there are many more instances of loan categories having loan category in the 0-7 range. TO visualize this better we can look at the distribution of loan category for the two time ranges.
+
+```{r}
+ggplot(old_loans, aes(ListingCategory..numeric.)) + 
+  geom_bar(stat = 'count', fill = '#FE7800', color = '#E20C77') +
+  ggtitle("Listing Category for Old loans")
+
+ggplot(new_loans, aes(ListingCategory..numeric.)) + 
+  geom_bar(stat = 'count', fill = '#FE7800', color = '#E20C77') +
+  ggtitle("Listing Category for New loans")
+```
+
+We can see that in the nre loans, the category Not Available is not having any loan entires. This could be because Prosper has become more strict about the loan category being present or as "Other". Another thing we notice, is that the expected reason for going to Prosper, Debt Consolidation, which is category number 1.
+
+```{r}
+# Debt to Income Ratio
+ggplot(loan %>% 
+         filter(!is.na(DebtToIncomeRatio)), 
+       aes(DebtToIncomeRatio)) + 
+  geom_histogram(bins = 40, fill = '#FE7800', color = '#E20C77') + 
+  scale_x_sqrt(labels = c(0.1, seq(0.0,1,0.2),2:10), 
+               breaks = c( 0.1, seq(0.0,1, 0.2), 2:10))
+```
+
+Most loans have users who have a debt to income ration below 1. But there are some loans listed by users wo have a debt to income ration of as high as 10.
+
+```{r}
+ggplot(new_loans %>% 
+         filter(!is.na(DebtToIncomeRatio)), 
+       aes(DebtToIncomeRatio)) + 
+  geom_histogram(bins = 40, fill = '#FE7800', color = '#E20C77') + 
+  scale_x_sqrt(labels = c(0.1, seq(0.0,1,0.2),2:10), 
+               breaks = c( 0.1, seq(0.0,1, 0.2), 2:10))
+```
+
+We can see that the number of new loan listings with high debt to income ratio is much lower than in old loans. In relstive terms, `r round((nrow(old_loans %>% filter(DebtToIncomeRatio > 2))/ nrow(old_loans)) * 100,3)`% of the old loans were having a Debt to Income ratio above 2, whereas that percentage for the new loans is only `r round((nrow(new_loans %>% filter(DebtToIncomeRatio > 2))/ nrow(new_loans)) * 100, 3)`%.
+
+```{r}
+loan$TotalProsperLoans <-  ifelse(is.na(loan$TotalProsperLoans), 
+                                  0, loan$TotalProsperLoans)
+ggplot(loan, aes(TotalProsperLoans))  + geom_bar()
+```
+
+We see that most loans are from new users of Propser.
+
+
+### Bivariate Plots
+
+```{r}
+ggplot(new_loans, aes(BorrowerAPR, EstimatedLoss)) + 
+  geom_point(alpha = 1/5, color = '#FE7800') + 
+  geom_smooth(method = "gam")
+```
+
+We can see from the above plot the risk-return trade-off of loans. A high BorrowerAPR is associated to a bad credit history and the risk associated with the loan. 
+
+```{r}
+ggplot(new_loans, aes(EmploymentStatus, BorrowerAPR)) + 
+  geom_violin(fill = '#FE7800', color = '#E20C77')
+```
+
+We can see an interesting trend in the above plot. As expected, a bulk of non employed user loans are having a high APR. Another point to note here is that all those who are unemployed, pay at least 10% APR.
+
+```{r}
+ggplot(new_loans, aes(CreditScoreRangeUpper, BorrowerAPR)) + 
+  geom_point(alpha = 1/50)
+```
+
+A high credit score generally should mean that the user gets a lower APR, but from the above plot we can see that the distribution of APR by credit score is quite varied and we need to find other reasons for this variation in the APR.
+
+Can revolving credit balance explain the variation?
+
+```{r}
+ggplot(new_loans, aes(BorrowerAPR, RevolvingCreditBalance)) + 
+  geom_point(alpha = 1/20)
+```
+
+Revolving credit balance is spread across the range of APR so it is not sufficient to explain the risk with the loan.
+
+A correlation test shows the high level of correlation between BorrowerAPR and the ProsperScore. The correlation is -.962, which is very high and statistically significant with a p-velue < 2.2e-16. This can be visualized to get a better understandting.
+
+```{r}
+ggplot(new_loans, aes(factor(ProsperScore), BorrowerAPR )) + 
+  geom_violin(fill = '#FE7800', color = '#E20C77')
+```
+
+The prosper score is displayed very prominently in the website. This helps an investor decide if he wants to invest in the loan. The Propser score is based on the risk reward ratio of a loan. A high risk loans mean a higher chance of default or charge-off. The below plot shows the relative probability of each state of a loan distributed by BorrowerAPR.
+
+```{r}
+ggplot(new_loans, aes(BorrowerAPR, ..count.., fill = LoanStatus)) +
+  geom_density( position="fill")
+```
+
+We can see that as the BorrowerAPR goes up, so does the probability of the loan getting defaulted or being charged-off. Similarly, the number of loans with high APR have a higher number of loans which are having delayed payments. This is usually because of the financial state of borrowers in this region. This kind of defaults and charge-offs would get a bad name to Prosper. 
+
+Has prosper changed their selection of borrowers over the years?
+```{r}
+ggplot(new_loans , aes(BorrowerAPR)) +
+  geom_histogram(fill = '#FE7800', color = '#E20C77') +
+  facet_wrap(~Loan.Year)
+```
+We can see that in 2011 and 2012, there were many loans having high APR, thus risky loans. In 2013, Prosper seems to have changed their loan approval process and is concentrating on the more stable loans which hopefully have lower default rates.
+
+```{r}
+ggplot(new_loans %>%
+         group_by(Loan.Year, BorrowerAPR) %>% 
+         summarize(Count = n())
+       , aes(Loan.Year, y = Count, fill=BorrowerAPR, 
+             color = BorrowerAPR)) +
+  geom_bar(stat='identity') + 
+  scale_x_continuous(breaks = 2009:2014, labels = 2009:2014)
+```
+
+THe above graph shows the same distribution of BorrowerAOR by year in a stacked bar graph form. WE can see the gradient colour of the loans to see that in 2013 the loans having lower average APR, and thus less risky.
+
+Does giving loans only in the safer APR mean we have lower charge-off and defaults?
+
+```{r}
+ggplot(new_loans %>%
+         group_by(Loan.Year, LoanStatus) %>% 
+         summarize(Count = n())
+       , aes(Loan.Year, y = Count, fill=LoanStatus, 
+             color = LoanStatus)) +
+  geom_bar(stat='identity') + 
+  scale_x_continuous(breaks = 2009:2014, labels = 2009:2014)
+```
+
+We can see that tha ratio of loans which are charged-off or defaulted is lower in 2013. But this can be because the loans are new and we have data only till 2014. Loans can go bad at any time in the loan period. Lets investigate if the loan duration is changing over the years.
+
+```{r}
+ggplot(new_loans, aes(Term)) + 
+  geom_bar(stat = 'count', fill = '#FE7800', color = '#E20C77') + 
+  facet_wrap(~ Loan.Year)
+```
+
+In 2013, we can see that Prosper is concentrating more on the 3 and 5 year loans. Thus, a 3 or 5 year loan can go bad in future, so we cant be sure that the change in loan approval method by prosper in 2013 can decrease the loan default rates.
+
+Does the loan listing category also change in 2013?
+
+```{r}
+ggplot(new_loans, aes(ListingCategory..numeric., fill=LoanStatus)) +
+  geom_bar(position = 'stack') +
+  facet_wrap(~Loan.Year)
+```
+
+In 2012, Prosper added many more loan categories. Even then, the most popular listing category was Debt consolidation.
+Debt consolidation would be needed when a user has many credit lines which are having high APRs. Also, it is known that credit score needs existing loans or credit cards. So can we see the Borrower APR based on the number of current credit lines a user has.
+
+```{r}
+apr.by.credit.lines <- loan %>% 
+                        group_by(CurrentCreditLines) %>% 
+                        summarize(Count = n(), 
+                               BorrowerAPR = median(BorrowerAPR)) %>%
+                        arrange(-BorrowerAPR)
+
+ggplot(apr.by.credit.lines, aes(CurrentCreditLines, BorrowerAPR)) + 
+  geom_smooth() + 
+  scale_x_continuous(labels = c(seq(0, 10, 5), seq(12, 20, 2), seq(25, 65, 5)), breaks = c(seq(0, 10, 5), seq(12, 20, 2), seq(25, 65, 5)))
+```
+
+We can see that when a user has no existing credit line the user has to pay a high APR. The average APR gradually goes down upto 16 credit lines. After this, the APR starts increasing but very gradually. If someone Wants to get a better rate, they might want to look at the number of open credit lines they have. Consolidating or closing some might help in getting a better rate.
+
+```{r}
+ggplot(new_loans, aes(BorrowerAPR, ..count.., fill = IncomeRange)) +
+  geom_density(position = 'fill')
+```
+The above plot shows a relative frequency plot of Borrower APR by Income Range of users. We can see that people with higher income range tend to pay lower interest rates.
+
+How has the user base of Prosper changed over time, with respect to income ranges?
+
+```{r}
+income.ranges <- loan %>% group_by(IncomeRange, Loan.Year) %>% summarize(Count = n())
+
+ggplot(income.ranges, aes(Loan.Year, Count, fill = IncomeRange)) + 
+  geom_bar(stat = 'identity', position = 'fill') +
+  scale_x_continuous(labels = 2005:2014, breaks = 2005:2014)
+```
+
+In the above plot we can see the change in the user base for Prosper. We don't know if its an intentional choice or just natural trend that new users on Prosper are the ones with higher income levels year on year. The trend is clear in the chart above.
+
+Does the loan category change with the income levels?
+
+```{r}
+income.ranges <- new_loans %>% group_by(IncomeRange, ListingCategory..numeric.) %>% summarize(Count = n())
+
+ggplot(income.ranges, aes(ListingCategory..numeric., Count, fill = IncomeRange)) + 
+  geom_bar(stat = 'identity', position = 'fill')
+```
+
+There is a lot of information in the above plot. But if we look based on a rule that 50% of a category dominated by either low or high income groups we can catch a couple of outliers. These are, category 5, 10 and 18, where 2 income groups capture alsom 50% of a listing vategory. Category 5 is student loans and so the lower income of such users makes sense. Category 10 is Cosmetic Procedure, this is not very straight forward to answer, but we could guess that the reason these users need to get a Cosmetic Procedure is because job they might have has potential for higher income based on their looks, for example sales representatives.
+
+Category 18 is for Taxes, which is surprising. I did not know you could get loans to pay taxes. This leads me to think about the BorrweAPR for these 3 categories and if there is any deviation from the rest of the categories.
+
+
+```{r}
+ggplot(new_loans, aes(factor(ListingCategory..numeric.), BorrowerAPR)) +
+  geom_boxplot()
+```
+
+We find that users raising money for cosmetic procedures pay the highest median APR, on par with debt consolidation. But people raising money to pay taxes do not seem to pay higher APR. This could be due to the higher income that these users get. Student loan category has one of the widest range in BorrowerAPR.
+
+#Multivariate PLots
+
+```{r}
+ggplot(new_loans, aes(BorrowerAPR,(LoanOriginalAmount), color = ProsperRating..numeric.)) + geom_point(alpha = 1/5) + geom_smooth(color = 'red')
+```
+
+```{r}
+ggplot(new_loans, aes(BorrowerAPR,(Investors), color = ProsperRating..numeric.)) + geom_point(alpha = 1/5) + geom_smooth(color = 'red')
+```
+
